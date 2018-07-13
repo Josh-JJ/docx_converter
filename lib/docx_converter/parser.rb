@@ -94,9 +94,11 @@ module DocxConverter
     def parse_relationships(relationships)
       output = {}
       relationships.children.first.children.each do |rel|
-        rel_id = rel.attributes["Id"].value
-        rel_target = rel.attributes["Target"].value
-        output[rel_id] = rel_target
+        if rel.present? && rel.attributes.present?
+          rel_id = rel.attributes["Id"].value
+          rel_target = rel.attributes["Target"].value
+          output[rel_id] = rel_target
+        end
       end
       return output
     end
@@ -105,12 +107,14 @@ module DocxConverter
       output = {}
       unless node.instance_variable_get(:@node_cache).empty?
         node.xpath("//w:footnote").each do |fnode|
-          footnote_number = fnode.attributes["id"].value
-          if ["-1", "0"].include?(footnote_number)
-            # Word outputs -1 and 0 as 'magic' footnotes
-            next
+          if fnode.present? && fnode.attributes.present?
+            footnote_number = fnode.attributes["id"].value
+            if ["-1", "0"].include?(footnote_number)
+              # Word outputs -1 and 0 as 'magic' footnotes
+              next
+            end
+            output[footnote_number] = parse_content(fnode,0).strip
           end
-          output[footnote_number] = parse_content(fnode,0).strip
         end
       end
       return output
@@ -179,7 +183,7 @@ module DocxConverter
               
             when "rStyle"
               # This is a reference to one of Word's style names
-              if format_node.present?
+              if format_node.present? && format_node.attributes.present?
                 case format_node.attributes["val"].value
                 when "Strong"
                   # "Strong" is a predefined Word style
@@ -196,7 +200,7 @@ module DocxConverter
             end
             add = prefix + parse_content(nd,depth) + postfix
           when "br"
-            if first_child.present?
+            if first_child.present? && first_child.attributes.present?
               if first_child.attributes.empty?
                 # This is a line break. In kramdown, this corresponds to two spaces followed by a newline.
                 add = "  \n"
@@ -217,7 +221,7 @@ module DocxConverter
           
         when "footnoteReference"
           # output the Kramdown footnote syntax
-          if nd.present?
+          if nd.present? && nd.attributes.present?
             footnote_number = nd.attributes["id"].value
             add = "[^#{ footnote_number }]"
           end
@@ -238,7 +242,7 @@ module DocxConverter
         when "drawing"
           image_nodes = nd.xpath(".//a:blip", :a => 'http://schemas.openxmlformats.org/drawingml/2006/main')
           image_node = image_nodes.first
-          if image_node.present?
+          if image_node.present? && image_node.attributes.present?
             image_id = image_node.attributes["embed"].value
             image_path_zip = File.join("word", @relationships_hash[image_id])
             
