@@ -94,9 +94,11 @@ module DocxConverter
     def parse_relationships(relationships)
       output = {}
       relationships.children.first.children.each do |rel|
-        rel_id = rel.attributes["Id"].value
-        rel_target = rel.attributes["Target"].value
-        output[rel_id] = rel_target
+        if rel.present? && rel.attributes.present?
+          rel_id = rel.attributes["Id"].value
+          rel_target = rel.attributes["Target"].value
+          output[rel_id] = rel_target
+        end
       end
       return output
     end
@@ -105,12 +107,14 @@ module DocxConverter
       output = {}
       unless node.instance_variable_get(:@node_cache).empty?
         node.xpath("//w:footnote").each do |fnode|
-          footnote_number = fnode.attributes["id"].value
-          if ["-1", "0"].include?(footnote_number)
-            # Word outputs -1 and 0 as 'magic' footnotes
-            next
+          if fnode.present? && fnode.attributes.present?
+            footnote_number = fnode.attributes["id"].value
+            if ["-1", "0"].include?(footnote_number)
+              # Word outputs -1 and 0 as 'magic' footnotes
+              next
+            end
+            output[footnote_number] = parse_content(fnode,0).strip
           end
-          output[footnote_number] = parse_content(fnode,0).strip
         end
       end
       return output
@@ -165,6 +169,9 @@ module DocxConverter
           when "rPr"
             # This inline node is formatted. The first child always specifies the formatting of the subsequent 't' (text) node.
             format_node = first_child.children.first
+            # Mickey mode - This was throwing an error on converted doc -> docx that was missing a child node in the conversion
+            # this was the fastest way to resolve - we may move from docx to html in the medium term
+            break if format_node.nil?
             case format_node.name
             when "b"
               # This is regular (non-style) bold
@@ -179,27 +186,31 @@ module DocxConverter
               
             when "rStyle"
               # This is a reference to one of Word's style names
-              case format_node.attributes["val"].value
-              when "Strong"
-                # "Strong" is a predefined Word style
-                # This node is missing the xml:space="preserve" attribute, so we need to set the spaces ourselves.
-                prefix = " **"
-                postfix = "** "
-              when /Emph.*/
-                # "Emph..." is a predefined Word style. In English Word it's 'Emphasis', in French it's 'Emphaseitaliques'
-                # This node is missing the xml:space="preserve" attribute, so we need to set the spaces ourselves.
-                prefix = " *"
-                postfix = "* "
+              if format_node.present? && format_node.attributes.present?
+                case format_node.attributes["val"].value
+                when "Strong"
+                  # "Strong" is a predefined Word style
+                  # This node is missing the xml:space="preserve" attribute, so we need to set the spaces ourselves.
+                  prefix = " **"
+                  postfix = "** "
+                when /Emph.*/
+                  # "Emph..." is a predefined Word style. In English Word it's 'Emphasis', in French it's 'Emphaseitaliques'
+                  # This node is missing the xml:space="preserve" attribute, so we need to set the spaces ourselves.
+                  prefix = " *"
+                  postfix = "* "
+                end
               end
             end
             add = prefix + parse_content(nd,depth) + postfix
           when "br"
-            if first_child.attributes.empty?
-              # This is a line break. In kramdown, this corresponds to two spaces followed by a newline.
-              add = "  \n"
-            else first_child.attributes["type"] == "page"
-              # this is a Word page break
-              add = "<br style='page-break-before:always;'>"
+            if first_child.present? && first_child.attributes.present?
+              if first_child.attributes.empty?
+                # This is a line break. In kramdown, this corresponds to two spaces followed by a newline.
+                add = "  \n"
+              else first_child.attributes["type"] == "page"
+                # this is a Word page break
+                add = "<br style='page-break-before:always;'>"
+              end
             end
             
           else
@@ -213,8 +224,10 @@ module DocxConverter
           
         when "footnoteReference"
           # output the Kramdown footnote syntax
-          footnote_number = nd.attributes["id"].value
-          add = "[^#{ footnote_number }]"
+          if nd.present? && nd.attributes.present?
+            footnote_number = nd.attributes["id"].value
+            add = "[^#{ footnote_number }]"
+          end
           
         when "tbl"
           # parse the table recursively
@@ -232,12 +245,14 @@ module DocxConverter
         when "drawing"
           image_nodes = nd.xpath(".//a:blip", :a => 'http://schemas.openxmlformats.org/drawingml/2006/main')
           image_node = image_nodes.first
-          image_id = image_node.attributes["embed"].value
-          image_path_zip = File.join("word", @relationships_hash[image_id])
-          
-          extracted_imagename = extract_image(image_path_zip)
-          
-          add = "![](#{ extracted_imagename })\n"
+          if image_node.present? && image_node.attributes.present?
+            image_id = image_node.attributes["embed"].value
+            image_path_zip = File.join("word", @relationships_hash[image_id])
+            
+            extracted_imagename = extract_image(image_path_zip)
+            
+            add = "![](#{ extracted_imagename })\n"
+          end
         else
           # ignore those nodes
           # puts ' ' * depth + "ELSE: #{ nd.name }"
