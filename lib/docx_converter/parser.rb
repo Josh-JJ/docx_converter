@@ -169,6 +169,9 @@ module DocxConverter
           when "rPr"
             # This inline node is formatted. The first child always specifies the formatting of the subsequent 't' (text) node.
             format_node = first_child.children.first
+            # Mickey mode - This was throwing an error on converted doc -> docx that was missing a child node in the conversion
+            # this was the fastest way to resolve - we may move from docx to html in the medium term
+            break if format_node.nil?
             case format_node.name
             when "b"
               # This is regular (non-style) bold
